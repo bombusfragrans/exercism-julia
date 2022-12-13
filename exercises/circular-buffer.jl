@@ -47,18 +47,18 @@ function WithinBounds(cb::CircularBuffer, ::Type{Val{:capacity}}, key::Int...)
 end
 
 function WithinBounds(cb::CircularBuffer, ::Type{Val{:length}}, key::Int...)
-    _length = ength(cb)
+    _length = length(cb)
     WithinLength{all(k -> 1 <= k <= _length, key)}()
 end
 
 #=
 ########################################################
 interface methods
-needed to "inherit" 
+needed to "inherit"
 - `[i]` (indexing & slicing)
 - `last()`/`first()`
 - `length()`  # derived from `size()`
-- `==` 
+- `==`
 - `isempty()`
 - `eltype()`/`typeof()`
 - `iterate()`
@@ -72,16 +72,17 @@ helper function for `size()`
 `isempty(a::AbstractArray) = (length(a) == 0)`)
 =#
 
-function _get_no_elem(cb::CircularBuffer) 
+function _get_no_elem(cb::CircularBuffer)
     cb.tail == 0 && return 0
     c = capacity(cb)
     (((c + cb.tail) - cb.head) % c) + 1
 end
 
-Base.size(cb::CircularBuffer; _gne::Function=_get_no_elem) = (_gne(cb),)  # also defines stop length for `iterate()`, but not for `getindex()` 
+Base.size(cb::CircularBuffer; _gne::Function=_get_no_elem) = (_gne(cb),)  # also defines stop length for `iterate()`, but not for `getindex()`
 
+##########################################################################
 # helper function for `getindex()` & `setindex()`
- 
+
 _get_circ_idx(x::Int, i::Int, max::Int) = (((x - 1) + (i - 1)) % max) + 1
 
 # entry point for `getindex()`: tests whether circular buffer is empty before getting anything
@@ -110,6 +111,7 @@ function _getindex(cb::CircularBuffer, i::Int;
     getindex(cb.queue, _get_idx(cb.head, i, capacity(cb)))
 end
 
+# -----------------------------------------------------------------------------
 # entry point for `setindex()`: checks whether given index is within capacity of circular buffer
 # for `setindex()` `overwrite` is always `true`
 # adheres to defaut behavior: e.g. if at least some indices remain `#undef` `iterate()` will return an error
@@ -125,17 +127,17 @@ function Base.setindex!(::Type{WithinCapacity{true}}, varargs...) = _setindex!(v
 
 # default `setindex()` method for circular buffers
 
-function _setindex!(cb::CircularBuffer, 
+function _setindex!(cb::CircularBuffer,
                         value, key::Int...;
                         _getidx::Function=_get_circ_idx)
     capacity(cb) |>
     _capacity -> map(k -> _getidx(cb.head, k, _capacity, key) |>
     (_key -> setindex!(cb.queue, value, _key...); cb.tail = _key[maximum(key)])
 
-end # TODO: ...to here
+end
 
 ############################################################################
-# other utility methods 
+# other utility methods
 
 capacity(cb::CircularBuffer) = length(cb.queue)
 
@@ -146,40 +148,95 @@ function Base.empty!(cb::CircularBuffer)
     return cb
 end
 
-Base.pop!(cb::CircularBuffer) = pop!(FillingLevel(cb, Val{:empty}), cb) # TODO: test
+# add convert here
 
-Base.pop!(::Type{Empty{true}}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get aything from buffer; buffer is empty"))  # TODO: test
+############################################################################
+# helper function for `pop!()`
 
-Base.pop!(::Type{Empty{false}}), cb::CircularBuffer) = _pop!(cb)  # TODO: test
+_get_prev_idx(x::Int, max::Int) = (((x - 1) + (max - 1)) % max) + 1
 
-function _pop!(cb::CircularBuffer)
+# entry point for `pop!()`: checks whether buffer is empty befor returning anything
+
+Base.pop!(cb::CircularBuffer) = pop!(FillingLevel(cb, Val{:empty}), cb)
+
+Base.pop!(::Type{Empty{true}}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
+
+Base.pop!(::Type{Empty{false}}), cb::CircularBuffer) = _pop!(cb)
+
+# default `pop!()` method for cirular buffers
+
+function _pop!(cb::CircularBuffer;
+              _getidx::Function=_get_prev_idx)
     l = last(cb)
-    cb.tail = # TODO: tail "-1"
+    cb.tail = _getidx(cb.tail, capacity(cb))
     return l
 end
+
+# helper function for `popfirst!()`
+
+_next_circ_idx(x::Int, max::Int) = (x % max) + 1
+
+# entrypoint for `popfirst!()`: checks whether buffr is not empty before getting anything
+
+Base.popfirst!(cb::CircularBuffer) = popfirst!(FillingLevel(cb, Val{:empty}), cb)
+
+Base.popfirst!(::Type{Empty{true}}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
+
+Base.popfirst!(::Type{Empty{false}}), cb::CircularBuffer) = _popfirst!(cb)
+
+function _popfirst!(cb::CircularBuffer;
+                    _getidx::Function=_next_circ_idx)
+    f = first(cb)
+    cb.head = _getidx(cb.head, capacity(cb))
+    return f
+end
+
+# --------------------------------------------------------------------------------------
+
+# parameter: overwrite ...
+
+# entry point for `push!()` method
+
+Base.push!(cb::CircularBuffer, i::Int; overwrite=false) = push!(Recycle(Val{overwrite}), cb, i)
+
+Base.push!(::Type{Overwrite{false}}, cb::CircularBuffer, i::Int) = push!(FillingLevel(cb, Val{:full}), cb, i)
+
+Base.push!(::Type{Full{true}}, cb::CircularBuffer, _) = throw(BoundsError(cb,"Can not add value because buffer is full"))
+
+Base.push!(::Type{Full{false}}, cb::CircularBuffer, i::Int) = _push!(cb, i)
+
+Base.push!(::Type{Overwrite{true}}), cb::CircularBuffer, i::Int) = _push!(cb, i)
+
+# default `push!()` method for circular buffers
+
+function _push! end
+
+# entry point for `pushfirst!()` method
+
+Base.pushfirst!(cb::CircularBuffer, i::Int; overwrite=false) = pushfirst!(Recycle(Val{overwrite}), cb, i)
+
+Base.pushfirst!(::Type{Overwrite{false}}, cb::CircularBuffer, i::Int) = pushfirst!(FillingLevel(cb, Val{:full}), cb, i)
+
+Base.pushfirst!(::Type{Full{true}}, cb::CircularBuffer, _) = throw(BoundsError(cb,"Can not add value because buffer is full"))
+
+Base.pushfirst!(::Type{Full{false}}, cb::CircularBuffer, i::Int) = _pushfirst!(cb, i)
+
+Base.pushfirst!(::Type{Overwrite{true}}), cb::CircularBuffer, i::Int) = _pushfirst!(cb, i)
+
+# default `pushfirst!()` method for circular buffers
+
+function _pushfirst! end
+
+function _append! end
+
+# TODO: ...to here
+
 # partially tested until here
 ############################################################################
 
-#=
-_next_circ_idx(x::Int, max::Int) = (x % max) + 1
-
-_get_prev_idx(x::Int, max::Int) = (((x - 1) + (max - 1)) % max) + 1 
-=#
-############################################################################
-function Base.pop!(cb::CircularBuffer;
-                   _getidx::Function=_get_prev_idx)
-
-    tmp = cb.queue[cb.tail] # TODO: cb.tail can not be 0
-    
-    cb.tail = _getidx(cb.tail, cb.capacity)
-    cb.size -= 1 # TODO: should not fall below 0
-
-    return tmp
-
-end
-
 function convert(::Type{T}, cb::CircularBuffer) where {T <: AbstractArray}
     # see example in circularbuffer.jl using a list comprehension (as iterate works)
+    # ist with other utility functions
     map(i -> getindex(cb, i), 1:cb.capacity) |> x -> convert(T, x)
 
 end
