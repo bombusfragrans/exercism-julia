@@ -27,7 +27,7 @@ struct Full{T} <: FillingLevel end
 
 FillingLevel(cb::CircularBuffer,::Type{Val{:empty}}) = Empty{isempty(cb)}()
 
-FillingLevel(cb::CircularBuffer,::Type{Val{:full}}) = Full{isfull(cb)}() # TODO: test passed to here
+FillingLevel(cb::CircularBuffer,::Type{Val{:full}}) = Full{isfull(cb)}()
 
 abstract type Recycle end
 
@@ -37,9 +37,9 @@ Recycle(b::Bool) = Overwrite{b}()
 
 abstract type WithinBounds end
 
-struct WithinCapacity{T <: Bool} <: WithinBounds end
+struct WithinCapacity{T} <: WithinBounds end
 
-struct WithinLength{T <: Bool} <: WithinBounds end
+struct WithinLength{T} <: WithinBounds end
 
 function WithinBounds(cb::CircularBuffer, ::Type{Val{:capacity}}, key::Int...)
     _capacity = capacity(cb)
@@ -79,7 +79,7 @@ function _get_no_elem(cb::CircularBuffer)
 end
 
 Base.size(cb::CircularBuffer; _gne::Function=_get_no_elem) = (_gne(cb),)  # also defines stop length for `iterate()`, but not for `getindex()`
-
+# TODO: test passed to here
 # -----------------------------------------------------------------------
 # helper function for `getindex()` & `setindex()`
 
@@ -87,29 +87,28 @@ _get_circ_idx(x::Int, i::Int, max::Int) = (((x - 1) + (i - 1)) % max) + 1
 
 # entry point for `getindex()`: tests whether circular buffer is empty before getting anything
 
-function Base.getindex(cb::CircularBuffer, i::Int)  # TODO: test from here ...
+function Base.getindex(cb::CircularBuffer, i::Int...)  # TODO: test from here ...
     getindex(FillingLevel(cb, Val{:empty}), cb, i)
 end
 
-Base.getindex(::Type{Empty{true}}, varargs...) = throw(BoundsError(varargs[1],"Buffer is empty"))
+Base.getindex(::Type{Empty{true}}, cb::CircularBuffer, _...) = throw(BoundsError(cb, "Buffer is empty"))
 
 # if circular buffer is not empty, checks whether requested index is within range of circular buffer capacity
 
-function Base.getindex(::Type{Empty{false}}, varargs...)
-    cb, i = varargs
-    getindex(WithinBounds(cb, Val{:length}, i), varargs...)
+function Base.getindex(::Type{Empty{false}}, cb::CircularBuffer, i::Int...)
+    getindex(WithinBounds(cb, Val{:length}, i), cb, i...)
 end
 
-Base.getindex(::Type{WithinLength{false}}, varargs...) = throw(BoundsError(varargs[1],"Index exceeds set bounds of buffer"))
+Base.getindex(::Type{WithinLength{false}}, cb::CircularBuffer, _...) = throw(BoundsError(varargs[1],"Index exceeds set bounds of buffer"))
 
-Base.getindex(::Type{WithinLength{true}}, varargs...) = _getindex(varargs...)
+Base.getindex(::Type{WithinLength{true}}, cb::CircularBuffer, i::Int...) = _getindex(cb, i...)
 
 # default `getindex()` method for circular buffers
 
 function _getindex(cb::CircularBuffer, elements::Int...;
                    _get_idx::Function=_get_circ_idx)
     _capacity = capacity(cb)
-    _elements = map(e -> _get_idx(cb.head, e, _capacity, elements)
+    _elements = map(e -> _get_idx(cb.head, e, _capacity, elements))
     getindex(cb.queue, _elements...) 
 end
 
