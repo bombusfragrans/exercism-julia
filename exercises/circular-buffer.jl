@@ -79,7 +79,7 @@ function _get_no_elem(cb::CircularBuffer)
 end
 
 Base.size(cb::CircularBuffer; _gne::Function=_get_no_elem) = (_gne(cb),)  # also defines stop length for `iterate()`, but not for `getindex()`
-# TODO: test passed to here
+
 # -----------------------------------------------------------------------
 # helper function for `getindex()` & `setindex()`
 
@@ -87,29 +87,37 @@ _get_circ_idx(x::Int, i::Int, max::Int) = (((x - 1) + (i - 1)) % max) + 1
 
 # entry point for `getindex()`: tests whether circular buffer is empty before getting anything
 
-function Base.getindex(cb::CircularBuffer, i::Int...)  # TODO: test from here ...
+function Base.getindex(cb::CircularBuffer,
+                       i::Union{Int,AbstractRange{Int},Vector{Int}})
     getindex(FillingLevel(cb, Val{:empty}), cb, i)
 end
 
-Base.getindex(::Type{Empty{true}}, cb::CircularBuffer, _...) = throw(BoundsError(cb, "Buffer is empty"))
+Base.getindex(::Empty{true}, cb::CircularBuffer, _) = throw(BoundsError(cb, "Buffer is empty"))
 
 # if circular buffer is not empty, checks whether requested index is within range of circular buffer capacity
 
-function Base.getindex(::Type{Empty{false}}, cb::CircularBuffer, i::Int...)
-    getindex(WithinBounds(cb, Val{:length}, i), cb, i...)
+function Base.getindex(::Empty{false}, cb::CircularBuffer,
+                       i::Union{Int,AbstractRange,Vector})
+    getindex(WithinBounds(cb, Val{:length}, i...), cb, i)
 end
 
-Base.getindex(::Type{WithinLength{false}}, cb::CircularBuffer, _...) = throw(BoundsError(varargs[1],"Index exceeds set bounds of buffer"))
+Base.getindex(::WithinLength{false}, cb::CircularBuffer, _) = throw(BoundsError(cb,"Index exceeds set bounds of buffer"))
 
-Base.getindex(::Type{WithinLength{true}}, cb::CircularBuffer, i::Int...) = _getindex(cb, i...)
+Base.getindex(::WithinLength{true}, cb::CircularBuffer, i::Union{Int,AbstractRange,Vector}) = _getindex(cb, i)
 
 # default `getindex()` method for circular buffers
 
-function _getindex(cb::CircularBuffer, elements::Int...;
+function _getindex(cb::CircularBuffer, element::Int;
                    _get_idx::Function=_get_circ_idx)
-    _capacity = capacity(cb)
-    _elements = map(e -> _get_idx(cb.head, e, _capacity, elements))
-    getindex(cb.queue, _elements...) 
+    getindex(cb.queue, _get_idx(cb.head, element, capacity(cb)))
+end
+
+function _getindex(cb::CircularBuffer,
+                   elements::Union{AbstractRange{Int},Vector{Int}};
+                   _get_idx::Function=_get_circ_idx)
+    (capacity(cb), elements) |> 
+    _i -> map(e -> _get_idx(cb.head, e, _i[1]), _i[2]) |> 
+    _e -> getindex(cb.queue, _e)
 end
 
 # =====================================================================================
@@ -117,24 +125,42 @@ end
 # for `setindex()` `overwrite` is always `true`
 # adheres to defaut behavior: e.g. if at least some indices remain `#undef` `iterate()` will return an error
 
+function Base.setindex!(cb::CircularBuffer, value::eltype(cb), key::Int)
+    setindex!(WithinBounds(cb, Val{:capacity}, key), cb, value, key)
+
 function Base.setindex!(cb::CircularBuffer,
-                        value::eltype(cb), key::Int...)
-    setindex!(WithinBounds(cb, Val{:capacity}, key...), cb, value, key...)
+                        values::Vector{eltype(cb)},
+                        keys::Vector{Int})
+    setindex!(WithinBounds(cb, Val{:capacity}, keys...), cb, values, keys)
 end
 
-Base.setindex!(::Type{WithinCapacity{false}}, varargs...) = throw(BoundsError(varargs[1], "At leat one index exceeds the bounds of this buffer"))
+Base.setindex!(::WithinCapacity{false}, cb::CircularBuffer, _, _) = throw(BoundsError(cb, "At leat one index exceeds the bounds of this buffer"))
 
-function Base.setindex!(::Type{WithinCapacity{true}}, varargs...) = _setindex!(varargs...)
+function Base.setindex!(::WithinCapacity{true}, 
+                        cb::CircularBuffer,
+                        values::Union{eltype(cb), Vector{eltype(cb)}},
+                        keys::Union{Int, Vector{Int}})
+    _setindex!(cb, values, keys)
+end    
 
 # default `setindex()` method for circular buffers
 
-function _setindex!(cb::CircularBuffer,
-                    value::eltype(cb), key::Int...;
+function _setindex!(cb::CircularBuffer, value::eltype(cb), key::Int;
                     _getidx::Function=_get_circ_idx)
-    _maxkey = maximum(key)
-    _key = map(k -> _getidx(cb.head, k, capacity(cb), key)
-    _maxkey > length(cb) && (cb.tail = _key[_maxkey]) 
-    setindex!(cb.queue, value, _key...)
+    _key = _getidx(cb.head, key, capacity(cb))
+    key > length(cb) && (cb.tail = _key)
+    setindex!(cb.queue, value, key)
+end
+
+function _setindex!(cb::CircularBuffer,
+                    values::Vector{eltype(cb)},
+                    keys::Vector{Int};
+                    _getidx::Function=_get_circ_idx)
+    _capacity = capacity(cb)
+    _maxkey = maximum(keys)
+    _keys = map(k -> _getidx(cb.head, k, _capacity), keys)
+    _maxkey > length(cb) && (cb.tail = _keys[_maxkey]) 
+    setindex!(cb.queue, values, _keys)
 end
 
 ############################################################################
