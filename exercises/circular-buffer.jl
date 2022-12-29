@@ -125,37 +125,38 @@ end
 # for `setindex()` `overwrite` is always `true`
 # adheres to defaut behavior: e.g. if at least some indices remain `#undef` `iterate()` will return an error
 
-function Base.setindex!(cb::CircularBuffer, value::eltype(cb), key::Int)
+function Base.setindex!(cb::CircularBuffer{T}, value::T, key::Int) where {T}
     setindex!(WithinBounds(cb, Val{:capacity}, key), cb, value, key)
+end
 
-function Base.setindex!(cb::CircularBuffer,
-                        values::Vector{eltype(cb)},
-                        keys::Vector{Int})
+function Base.setindex!(cb::CircularBuffer{T},
+                        values::Vector{T},
+                        keys::Vector{Int}) where {T}
     setindex!(WithinBounds(cb, Val{:capacity}, keys...), cb, values, keys)
 end
 
 Base.setindex!(::WithinCapacity{false}, cb::CircularBuffer, _, _) = throw(BoundsError(cb, "At leat one index exceeds the bounds of this buffer"))
 
 function Base.setindex!(::WithinCapacity{true}, 
-                        cb::CircularBuffer,
-                        values::Union{eltype(cb), Vector{eltype(cb)}},
-                        keys::Union{Int, Vector{Int}})
+                        cb::CircularBuffer{T},
+                        values::Union{T, Vector{T}},
+                        keys::Union{Int, Vector{Int}}) where {T}
     _setindex!(cb, values, keys)
 end    
 
 # default `setindex()` method for circular buffers
 
-function _setindex!(cb::CircularBuffer, value::eltype(cb), key::Int;
-                    _getidx::Function=_get_circ_idx)
+function _setindex!(cb::CircularBuffer{T}, value::T, key::Int;
+                    _getidx::Function=_get_circ_idx) where {T}
     _key = _getidx(cb.head, key, capacity(cb))
     key > length(cb) && (cb.tail = _key)
     setindex!(cb.queue, value, key)
 end
 
-function _setindex!(cb::CircularBuffer,
-                    values::Vector{eltype(cb)},
+function _setindex!(cb::CircularBuffer{T},
+                    values::Vector{T},
                     keys::Vector{Int};
-                    _getidx::Function=_get_circ_idx)
+                    _getidx::Function=_get_circ_idx) where {T}
     _capacity = capacity(cb)
     _maxkey = maximum(keys)
     _keys = map(k -> _getidx(cb.head, k, _capacity), keys)
