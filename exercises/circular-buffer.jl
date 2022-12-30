@@ -19,6 +19,8 @@ mutable struct CircularBuffer{T} <: AbstractVector{T}
     end
 end
 
+# Traits
+
 abstract type FillingLevel end
 
 struct Empty{T} <: FillingLevel end
@@ -103,7 +105,10 @@ end
 
 Base.getindex(::WithinLength{false}, cb::CircularBuffer, _) = throw(BoundsError(cb,"Index exceeds set bounds of buffer"))
 
-Base.getindex(::WithinLength{true}, cb::CircularBuffer, i::Union{Int,AbstractRange,Vector}) = _getindex(cb, i)
+function Base.getindex(::WithinLength{true}, cb::CircularBuffer,
+                       i::Union{Int,AbstractRange,Vector})
+    _getindex(cb, i)
+end
 
 # default `getindex()` method for circular buffers
 
@@ -187,9 +192,9 @@ _get_prev_idx(x::Int, max::Int) = (((x - 1) + (max - 1)) % max) + 1
 
 Base.pop!(cb::CircularBuffer) = pop!(FillingLevel(cb, Val{:empty}), cb)
 
-Base.pop!(::Type{Empty{true}}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
+Base.pop!(::Empty{true}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
 
-Base.pop!(::Type{Empty{false}}), cb::CircularBuffer) = _pop!(cb)
+Base.pop!(::Empty{false}, cb::CircularBuffer) = _pop!(cb)
 
 # default `pop!()` method for cirular buffers
 
@@ -209,9 +214,9 @@ _next_circ_idx(x::Int, max::Int) = (x % max) + 1
 
 Base.popfirst!(cb::CircularBuffer) = popfirst!(FillingLevel(cb, Val{:empty}), cb)
 
-Base.popfirst!(::Type{Empty{true}}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
+Base.popfirst!(::Empty{true}, cb::CircularBuffer) = throw(BoundsError(cb,"Can not get anything from buffer; buffer is empty"))
 
-Base.popfirst!(::Type{Empty{false}}, cb::CircularBuffer) = _popfirst!(cb)
+Base.popfirst!(::Empty{false}, cb::CircularBuffer) = _popfirst!(cb)
 
 function _popfirst!(cb::CircularBuffer;
                     _getidx::Function=_next_circ_idx)
@@ -225,72 +230,95 @@ end
 
 # branching helper function for `push!()`, `pushfirst()` and `append!()`
 
-_insert_cb(cb::CircularBuffer, items...; overwrite=false, fct!::Function) = _insert_cb(Recycle(overwrite), cb, items...; fct!)
+function _insert_cb(cb::CircularBuffer, items::Tuple;
+                    overwrite=false, fct::Function)
+    _insert_cb(Recycle(overwrite), cb, items; fct=fct)
+end
 
-_insert_cb(::Type{Overwrite{true}}, cb::CircularBuffer, items...; _fct!::Function) = _fct!(cb, items)
+function _insert_cb(::Overwrite{true}, cb::CircularBuffer,
+                    items::Tuple; fct::Function)
+    fct(cb, items)
+end
 
-_insert_cb(::Type{Overwrite{false}}, cb::CircularBuffer, items...; _fct!::Function) = _insert_cb(FillingLevel(cb, Val{:empty}), cb, items...; _fct!)
+function _insert_cb(::Overwrite{false}, cb::CircularBuffer,
+                    items::Tuple; fct::Function)
+    _insert_cb(FillingLevel(cb, Val{:full}), cb, items; fct=fct)
+end
 
-_insert_cb(::Type{Full{true}}, cb, _; _) = throw(BoundsError(cb, "Sorry buffer full"))
+function _insert_cb(::Full{true}, cb::CircularBuffer, _i; __...)
+    throw(BoundsError(cb, "Sorry buffer full"))
+end
 
-_insert_cb(::Type{Full{false}}, cb, items...; _fct!) = _fct!(cb, items...) 
-
+function _insert_cb(::Full{false}, cb::CircularBuffer,
+                    items::Tuple; fct::Function)
+    fct(cb, items) 
+end
 
 # entry point for `push!()` method
 
-Base.push!(cb::CircularBuffer, items::eltype(cb); overwrite=false) = _insert_cb(cb, items...; overwirte=overwrite, fct!=_push!)
+function Base.push!(cb::CircularBuffer{T}, items::T...;
+                    overwrite=false) where {T}
+    _insert_cb(cb, items; overwrite=overwrite, fct = _push!)
+end
 
 # default `push!()` method for circular buffers
 
-function _push!(cb::CircularBuffer, items::eltype(cb)...;
-                _nxtidx::Function=_next_circ_idx)
+function _push!(cb::CircularBuffer{T}, items::Tuple{T,Vararg{T}}) where {T}
+    _push!(cb, collect(items))
+end
+
+function _push!(cb::CircularBuffer{T}, items::Vector{T};
+                _nxtidx::Function=_next_circ_idx) where {T}
     isempty(items) && return cb
     _capacity = capacity(cb)
-    _items = collect(items)
-    i = popfirst!(_items)
+    i = popfirst!(items)
     next_tail = _nxtidx(cb.tail, _capacity)
     next_tail == cb.head && cb.tail > 0 && (cb.head = _nxtidx(cb.head, _capacity))
     cb.tail = next_tail
     cb.queue[cb.tail] = i
-    _push!(cb, _items)    
+    _push!(cb, items)    
 end
 
 # entry point for `pushfirst!()` method
 
-Base.pushfirst!(cb::CircularBuffer, value::eltype(cb); overwrite=false) = _insert_cb(cb, items...; overwrite=overwrite, fct!=_pushfirst!)
+function Base.pushfirst!(cb::CircularBuffer{T}, items::T...;
+                         overwrite=false) where {T}
+    _insert_cb(cb, items; overwrite=overwrite, fct = _pushfirst!)
+end
 
 # default `pushfirst!()` method for circular buffers
 
-function _pushfirst!(cb::CircularBuffer, items::eltype(cb)...;
-                     _prvidx::Function=)
+function _pushfirst!(cb::CircularBuffer{T}, items::Tuple{T,Vararg{T}};
+                     _prvidx::Function=_get_prev_idx) where {T}
     function _insert(v::Vector, _cb::CircularBuffer=cb, 
                      _c::Int=_capacity; _pi=_prvidx)
         isempty(v) && return cb
         cb.tail > 0 ? 
             ((cb.head = _pi(cb.head, _c));
-            (cb.head == cb.tail && (cb.tail = _pi(cb.tail, _c))) : 
+            (cb.head == cb.tail && (cb.tail = _pi(cb.tail, _c)))) : 
             (cb.tail = 1)
         i = popfirst!(v)
         cb.queue[cb.head] = i
         _insert(v)
     end
     _capacity = capacity(cb)
-    _length = length(value)
+    _length = length(items)
     rest = div(_length-_capacity, _capacity)*_capacity
     tmp = items[begin+rest:end]
     
-    return _insert(tmp) 
+    return _insert(collect(tmp)) 
 end
 
 # entry point for 'append!()` method
 
-Base.append!(cb, collections::etype(cb)...; overwrite=false) = _insert_cb(cb, collections...; overwrite=overwrite, fct!=_append!)
-
-function _append!(cb::CircularBuffer,
-                  collections::eltype(cb)...;
-                  _p!=_push!)
-    tmp = collect(Iterators.flatten(collections))
-    _p!(cb, tmp...)
+function Base.append!(cb::CircularBuffer{T}, collections::T...;
+                      overwrite=false) where {T}
+    _insert_cb(cb, collections; overwrite=overwrite, fct = _append!)
 end
 
-# TODO: ...to here
+function _append!(cb::CircularBuffer{T},
+                  collections::Tuple{T,Vararg{T}};
+                  _p=_push!) where {T}
+    tmp = collect(Iterators.flatten(collections))
+    _p(cb, tmp)
+end
