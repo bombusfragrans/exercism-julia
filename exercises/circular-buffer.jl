@@ -155,7 +155,7 @@ function _setindex!(cb::CircularBuffer{T}, value::T, key::Int;
                     _getidx::Function=_get_circ_idx) where {T}
     _key = _getidx(cb.head, key, capacity(cb))
     key > length(cb) && (cb.tail = _key)
-    setindex!(cb.queue, value, key)
+    setindex!(cb.queue, value, _key)
 end
 
 function _setindex!(cb::CircularBuffer{T},
@@ -314,6 +314,11 @@ end
 function Base.append!(cb::CircularBuffer{T}, collections::T...;
                       overwrite=false) where {T}
     _insert_cb(cb, collections; overwrite=overwrite, fct = _append!)
+end
+
+function Base.append!(cb::CircularBuffer{T}, rng::AbstractRange{T};
+                      overwrite=false) where {T}
+    _insert_cb(cb, Tuple(rng); overwrite=overwrite, fct = _append!)
 end
 
 function _append!(cb::CircularBuffer{T},
