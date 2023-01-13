@@ -1,54 +1,50 @@
+# not to merely copy AbstractSet.jl and Set.Jl from master and for comparison reasons
+# the CustomSet is implemented on an mutable struct (due to required `!` methods) 
+# containing `Vector` (and not `Dicts` as in Set.jl)
+
 abstract type AbstractCustomSet{T} <: AbstractSet{T} end
 
 mutable struct CustomSet{T} <: AbstractCustomSet{T}
-    cset::Vector{T}
+    v::Vector{T}
+    CustomSet(vv::Vector) = new{eltype(vv)}(unique(vv))
+    CustomSet(m::Matrix) = new{eltype(m)}(unique(vec(m)))
+    # internal constructor because otherwise outer constructor would be bypassed by default constructor
+    # if e.g. `[1,1,2,2,3,3]` would be given which woud be of type `Vector`
 end
 
-abstract type AbstractIterable{T} end
+Base.iterate(cs::CustomSet) = iterate(cs.v)
 
-struct Iterable{T} <: AbstractIterable{T} end
+Base.iterate(cs::CustomSet, i::Integer) = iterate(cs.v, i) 
 
-function Iterable(itrs...)
-    any(i -> length(methods(iterate,(typeof(i),))) == 0, itrs) ?
-        Iterable{false} : Iterable{true}
-end
-
-CustomSet(a::Array) = CustomSet{eltype(a)}(unique(a))
-
-Base.iterate(cs::CustomSet) = iterate(cs.cset)
-
-Base.iterate(cs::CustomSet, i::Integer) = iterate(cs.cset, i)
-
-Base.length(cs::CustomSet) = length(cs.cset)
-
-Base.push!(cs::CustomSet, i...) = union!(cs.cset,i)
-
-Base.union!(csx::CustomSet, csy::CustomSet) = union!(csx.cset,csy.cset) 
-
-Base.union(csx::CustomSet, csy::CustomSet) = CustomSet(union(csx.cset,csy.cset))
-
-Base.copy(cs::CustomSet) = CustomSet(cs.cset)
-
-function _isiterable(cs::CustomSet, itrs::Tuple; fct::Function)
-    _isiterable(Iterable(itrs...), cs, itrs; fct=fct)
-end
-
-_isiterable(::Iterable{false}, _, __) = error("At least one argument is not an iterable")
-
-_isiterable(::Iterable{true}, cs, itrs; fct) = fct(cs, itrs...)
-
-function Base.intersect(cs::CustomSet, itrs...)
-    _isiterable(cs, itrs; fct=intersect)
-end
-
-#Base.intersect!(cs::CustomSet, itr...) # Test for Iterable: `length(methods(funct,(Type,)))`
+Base.length(cs::CustomSet) = length(cs.v)
 
 #=
-still needed
-intersect (if x or y is empty return empty[])
-complement (if x is empty return empty[], if x not empty but y return x)
-complement! (opposite of intersect!: returns whats only in a but not also b)
-issubset?
-disjont
-'=='
+already works due to 'inheritance' from `AbstractSet`:
+- `union`
+- `isdisjoint`
+- `issubset`
+- `==`
+- `intersect`
+- `setdiff`
 =#
+
+Base.copy(cs::CustomSet) = CustomSet(cs.v)
+
+# 'enables' also `union!`
+
+Base.push!(cs::CustomSet, items...) = (cs.v = union!(cs.v, items...))
+
+# 'enables' also `setdiff!` and `intersect!`
+
+Base.delete!(cs::CustomSet, idx::Int) = deleteat!(cs.v, idx) 
+
+Base.filter!(fct::Function, cs::CustomSet) = filter!(fct, cs.v)
+
+# just an 'alias' of another method defined by AbstractSet
+
+disjoint(csx::CustomSet, csy::CustomSet) = isdisjoint(csx, csy)
+
+complement(cs::CustomSet, itrs...) = CustomSet(collect(setdiff(cs.v, itrs...)))
+
+complement!(cs::CustomSet, itrs...) = (cs.v = setdiff!(cs.v, itrs...))
+
