@@ -1,4 +1,4 @@
-import Base:  +, -, *, ^, /, < 
+import Base:  +, -, *, ^, /, <, ==
 
 abstract type AbstractRationalNumber <: Real end
 
@@ -14,6 +14,16 @@ struct RationalNumber{T<:Integer} <: AbstractRationalNumber
     end
 end
 
+RationalNumber(n::T, d::T) where {T<:Integer} = RationalNumber{T}(n, d)
+
+RationalNumber(n::Integer, d::Integer) = RationalNumber(promote(n, d)...)
+
+RationalNumber(n::Integer) = RationalNumber(n, one(n))
+
+RationalNumber(rn::RationalNumber, i::Integer) = RationalNumber(rn.n, (rn.d*i))
+
+RationalNumber(i::Integer, rn::RationalNumber) = RationalNumber((i*rn.n), rn.d)
+
 struct IsNull{T} end
 
 IsNull(x::Integer) = IsNull{x == 0}()
@@ -26,32 +36,27 @@ ZeroRational(::IsNull{true}, ::IsNull{true}) = throw(ArgumentError("invalid rati
 
 ZeroRational(n::IsNull, d::IsNull) = false
 
-RationalNumber(n::T, d::T) where {T<:Integer} = RationalNumber{T}(n, d)
+struct NegRatExp{T} end
 
-RationalNumber(n::Integer, d::Integer) = RationalNumber(promote(n, d)...)
+NegRatExp(rn::RationalNumber) = NegRatExp{(rn.n < 0)}()
 
-RationalNumber(n::Integer) = RationalNumber(n, one(n))
-
-RationalNumber(rn::RationalNumber, i::Integer) = RationalNumber(rn.n, (rn.d*i))
-
-RationalNumber(i::Integer, rn::RationalNumber) = RationalNumber((i*rn.d), rn.n)
+# -------------------------------------------------------------------------------------------
 
 numerator(rn::RationalNumber) = rn.n
 
-denominator(rn::RationalNumber) = rn.d
+Base.denominator(rn::RationalNumber) = rn.d
 
-Base.isequal(rnx::RationalNumber,rny::RationalNumber) = rnx.n == rny.n && rnx.d == rny.d
+Base.zero(::Type{RationalNumber{T}}) where {T<:Integer} = RationalNumber(0)
 
-Base.zero(rn::RationalNumber{T}) where {T<:Integer} = zero(T)
+Base.one(::Type{RationalNumber{T}}) where {T<:Integer} = RationalNumber(1)
 
-Base.one(rn::RationalNumber{T}) where {T<:Integer} = one(T)
-
-+(rn::RationalNumber...) = _op(x, y, z...; fct = +)
++(x::RationalNumber, z::RationalNumber...) = _op(x, z...; fct = +)
 
 -(x::RationalNumber, y::RationalNumber) = _op(x, y; fct = -)
 
 function _op(x::RationalNumber, y::RationalNumber, z::RationalNumber...;
              fct::Function)
+    @show "ok"
     _op(_op(x, y; fct = fct), z...; fct = fct)
 end
 
@@ -62,10 +67,10 @@ function _elevate(x::RationalNumber, y::RationalNumber)
     return (a, z), (b, z)
 end
 
-function _op(a::RationalNumber, b::RationalNumber; fct::Function, _e::Function = _elevate)
-    x, y = _e(a, b)
-    n = fct(x[1], y[1])
-    return RationalNumber(n, x[1])
+function _op(x::RationalNumber, y::RationalNumber; fct::Function, _e::Function = _elevate)
+    a, b = _e(x, y)
+    n = fct(a[1], b[1])
+    return RationalNumber(n, a[2])
 end
 
 function Base.isless(a::RationalNumber, b::RationalNumber; _e::Function = _elevate)
@@ -77,7 +82,13 @@ function Base.isless(a::RationalNumber, b::RationalNumber; _e::Function = _eleva
     =#
 end
 
+==(rnx::RationalNumber,rny::RationalNumber) = rnx.n == rny.n && rnx.d == rny.d
+
+==(rn::RationalNumber, i::Integer) = (rn.d == 1) && (rn.n == i)
+
 <(x::RationalNumber, y::RationalNumber) = isless(x, y)
+
+<(rn::RationalNumber, i::Integer) = isless(rn, RationalNumber(i, 1))
 
 *(x::RationalNumber, y::RationalNumber...) = *(x, y, z...)
 
@@ -91,10 +102,25 @@ end
 
 Base.inv(rn::RationalNumber) = RationalNumber(rn.d, rn.n)
 
-/(x::RationalNumber, y::RationalNumber) = x * inv(y) 
+/(x::RationalNumber, y::RationalNumber) = x * inv(y)
 
-^(rn::RationalNumber, i::Integer) = RationalNumber(rn.n, (rn.d ^ i))
+^(rn::RationalNumber, i::Integer) = RationalNumber((rn.n ^ i), (rn.d ^ i))
 
-#Base.show(io::IO, rn::RationalNumber) = "$rn.n//$rn.d"
+^(i::Integer, rn::RationalNumber) = _pow(NegRatExp(rn), i, rn)
 
-#Base.sprint()
+_pow(::NegRatExp{false}, i::Integer, rn::RationalNumber) = (i ^ rn.n) ^ (1 / rn.d)
+
+function _pow(::NegRatExp{true}, i::Integer, rn::RationalNumber)
+    a = abs(rn.n)
+    1 / (i ^ a) ^ (1 / rn.d)
+end
+
+Base.isapprox(rn::RationalNumber, r::Real) = isapprox((rn.n / rn.d), r)
+
+Base.abs(rn::RationalNumber) = RationalNumber(abs(rn.n), rn.d)
+
+function Base.show(io::IO, rn::RationalNumber)
+    show(io, numerator(rn))
+    print(io, "//")
+    show(io, denominator(rn))
+end
