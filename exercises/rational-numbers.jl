@@ -1,4 +1,4 @@
-import Base:  +, -, *, ^, /, <, ==
+import Base:  +, -, *, ^, /, <, ==, convert, promote, promote_rule
 
 abstract type AbstractRationalNumber <: Real end
 
@@ -56,31 +56,29 @@ Base.one(::Type{RationalNumber{T}}) where {T<:Integer} = RationalNumber(1)
 
 function _op(x::RationalNumber, y::RationalNumber, z::RationalNumber...;
              fct::Function)
-    @show "ok"
     _op(_op(x, y; fct = fct), z...; fct = fct)
 end
 
-function _elevate(x::RationalNumber, y::RationalNumber)
-    z = lcm(x.d, y.d)
-    a = x.n * div(z, x.d)
-    b = y.n * div(z, y.d)
-    return (a, z), (b, z)
+function _op(x::RationalNumber, y::RationalNumber; fct::Function)
+    any(iszero, (x.d, y.d)) && (return RationalNumber(1, 0))
+    (z = lcm(x.d, y.d)) |> 
+    l -> map(rn -> rn.n * div(l, rn.d), (x, y)) |> 
+    nn -> fct(nn...) |>
+    n -> RationalNumber(n, z)
 end
 
-function _op(x::RationalNumber, y::RationalNumber; fct::Function, _e::Function = _elevate)
-    a, b = _e(x, y)
-    n = fct(a[1], b[1])
-    return RationalNumber(n, a[2])
-end
-
-function Base.isless(a::RationalNumber, b::RationalNumber; _e::Function = _elevate)
-    x, y = _e(a, b)
-    isless(x, y)
+function Base.isless(x::RationalNumber, y::RationalNumber)
+    x.d == y.d && return x.n < y.n
+    isless((x.n * y.d), (y.n * x.d))  # cross multiplication
     #=
     Alternative:
     (a.n, a.d) < (b.n, b.d)
     =#
 end
+
+Base.convert(::Type{RationalNumber}, i::Integer) = RationalNumber(i)
+
+Base.promote_rule(::Type{<:RationalNumber}, ::Type{<:Integer}) = RationalNumber
 
 ==(rnx::RationalNumber,rny::RationalNumber) = rnx.n == rny.n && rnx.d == rny.d
 
@@ -88,7 +86,7 @@ end
 
 <(x::RationalNumber, y::RationalNumber) = isless(x, y)
 
-<(rn::RationalNumber, i::Integer) = isless(rn, RationalNumber(i, 1))
+<(rn::RationalNumber, i::Integer) = <(promote(rn, i)...)
 
 *(x::RationalNumber, y::RationalNumber...) = *(x, y, z...)
 
