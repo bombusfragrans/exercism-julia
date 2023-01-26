@@ -41,15 +41,21 @@ function /(cnx::ComplexNumber, cny::ComplexNumber)
                   (cny.re ^ 2 + cny.im ^ 2))
 end
 
-#^(cn::ComplexNumber, i::Integer) = 
-
-#=
-If a,b are real, then a+ib=r(cosθ + i sinθ) where r=sqrt(a^2+b^2) and tan θ=b/a, and
-(a + i b)^N = r^N(cos(Nθ) + i sin(Nθ)).
-r = abs(ComplexNumber)
-θ = π/4
-=#
+function ^(cn::ComplexNumber, i::Integer)
+    i == 0 && return ComplexNumber(cn.re ^ 0, cn.im ^ 0)
+    i == 1 && return cn
+    i == 2 && return ComplexNumber((cn.re ^ 2 − cn.im ^ 2), (2 * cn.re * cn.im))
+    #DeMoivre: r ^ n * (cos(n * arg) + sin(n * arg)i)
+    const r = abs(cn)
+    const r_pow_n(r, n) = r ^ n
+    const arg = tan(cn.im / cn.re) ^ -1
+    const rpn = r_pow_n(r, i)
+    const cn_pow_n(n, arg) = ((rpn * cos(n * arg)), (rpn * sin(n * arg)))
+    ComplexNumber(cn_pow_n(i, arg)...)
+end
 
 #exp(cn::ComplexNumber) = ComplexNumber()
+
+#jm()
 
 #Base.show()
