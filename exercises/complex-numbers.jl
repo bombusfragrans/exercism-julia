@@ -15,13 +15,15 @@ ComplexNumber(x::Real, y::Real) = ComplexNumber(promote(x, y)...)
 
 ComplexNumber(x::Real) = ComplexNumber(x, zero(x))
 
+ComplexNumber(j::jm) = j.cn
+
 jm(x::Real, y::Real) = jm(ComplexNumber(x, y))
 
 jm(x::Real) = jm(ComplexNumber(zero(x), x))
 
-convert(::Type{ComplexNumber}, j::jm) = j.cn
+jm() = jm(0, 1)
 
-Base.promote_rule(::Type{jm}) = ComplexNumber
+convert(::Type{ComplexNumber}, j::jm) = j.cn
 
 Base.promote_rule(::Type{<:AbstractComplexNumber}, ::Type{<:AbstractComplexNumber}) = ComplexNumber
 
@@ -35,9 +37,7 @@ Base.abs(cn::ComplexNumber) = sqrt((cn.re ^ 2) + (cn.im ^ 2))
 
 Base.isequal(cnx::ComplexNumber, cny::ComplexNumber) = cnx.re == cny.re && cnx.im == cny.im
 
-Base.isequal(cn::ComplexNumber, j::jm) = cn == j.cn
-
-Base.isequal(j::jm, cn::ComplexNumber) = isequal(promote(j, cn)...)
+Base.isequal(a::AbstractComplexNumber, b::AbstractComplexNumber) = isequal(promote(a, b)...)
 
 function Base.isapprox(cnx::ComplexNumber, cny::ComplexNumber)
     isapprox(cnx.re, cny.re) && isapprox(cnx.im, cny.im)
@@ -56,6 +56,8 @@ end
 
 *(r::Real, ::Type{jm}) = jm(r)
 
+*(r::Real, j::jm) = jm(r)
+
 function /(cnx::ComplexNumber, cny::ComplexNumber)
     ComplexNumber((cnx.re * cny.re + cnx.im * cny.im) / 
                   (cny.re ^ 2 + cny.im ^ 2),
@@ -73,23 +75,27 @@ function ^(cn::ComplexNumber, i::Integer)
     ComplexNumber((rpn * cos(i * arg)), (rpn * sin(i * arg)))
 end
 
-^(j::jm, i::Integer) = ^(promote(j), i)
+^(j::jm, i::Integer) = jm(j.cn ^ i)
 
-function exp(cn::ComplexNumber)
+^(::Type{jm}, i::Integer) = ^(jm(), i)
+
+function Base.exp(cn::ComplexNumber)
     m = exp(cn.re)
     ComplexNumber((m * cos(cn.im)), (m * sin(cn.im)))
 end
 
 function Base.show(io::IO, cn::ComplexNumber)
     show(io, cn.re)
-    print(io, " + ")
-    show(io, cn.im)
+    print(io, ifelse(signbit(cn.im), " - ", " + "))
+    show(io, abs(cn.im))
     print(io, "i")
 end
 
 function Base.show(io::IO, j::jm)
     show(io, j.cn.re)
-    print(io, " + ")
-    show(io, j.cn.im)
+    print(io, ifelse(signbit(j.cn.im), " - ", " + "))
+    show(io, abs(j.cn.im))
     print(io, "jm")
 end
+
+# TODO; Bonus B needs work; tests do not pass (rest ok by sample)
