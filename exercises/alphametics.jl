@@ -13,6 +13,8 @@ function Alphametic(s::String)
     Alphametic(strip.(isspace, split(fs, "+")), strip(isspace, last(fs)), Solution(s))
 end
 
+Alphametic(::Nothing) = nothing
+
 mutable struct Solution
     snapshot::Dict{Char, Union{Int, Missing}}
 end
@@ -38,12 +40,19 @@ Site(s::Symbol) = Dict(:left => Left(), :right => Right())[s] # to ensure that o
 
 # helper functions for `solve()`
 
-validInputString(s::String; vi::Regex=rvalidInput) = isnothing(match(vi, s)) ? nothing : s
+validInputString(s::String; vi::Regex=rvalidInput) = validInputString(match(vi, s))
 
-function validSet(s::Union{String, Nothing})
-    isnothing(s) && return nothing
-    length(Set(filter(isletter, s))) <= 10 ? s : nothing
-end
+validInputString(m::RegexMatch) = m.match
+
+validInputString(n::Nothing) = n
+
+validSet(s::String) = validSet(Val(length(Set(filter(isletter, s))) <= 10), s)
+
+validSet(::Val{true}, s) = s
+
+validSet(::Val{false}, _) = nothing
+
+validSet(n::Nothing) = n
     
 not_taken(a::Alphametic, n::Int) = !(n in values(a.current.snapshot))
 
@@ -60,32 +69,58 @@ _swap(d::Dict{Char, Int}, s::String...) = map(i -> _swap(d, i), s)
 _swap(d::Dict{Char, Int}, s::String) = parse(Int, mapreduce(c -> string(d[c]), *, s))
 # alternative: `sum(d[c] * 10 ^ (i - 1) for (i, c) inumerate(reverse(s)))`
 
-isvalidSolution(a::Alphametic) = sum(_swap(a, :left)) == _swap(a, :right)
+isvalidSolution(a::Alphametic) = sum(swap(a, :left)) == swap(a, :right)
 
-function solve(s::String) # calls _solve and returns a Dict or nothing
+# experimental exercise: 
+# using dispatch and recursion for `solve()` instead of otherwise e.g. nested loops
+
+function solve(s::String) 
+    # solve #1
     s |> 
     validInputString |> 
     validSet |> 
     Alphametic |> 
-    solve
+    solve # passed to solve #2(a/b)
 end
 
+solve(n::Nothing) = n # solve #2a
+
 function solve(a::Alphametic)
-    for k,v in a.current.snapshot
-        if v === missing
-            for i in 0:9
-                if not_taken(a, i)
-                    a.current.snapshot[k] = i
-                    if non_missing(a)
-                        isvalidSolution(a) ? return a.current.snapshot : a.current.snapshot[k] = missing  # |> solve???
-                    else
-                        solve(a)
-                    end    
-                end
-            end
-        end
-    end
-end # the solver itself
+    # solve #2b
+    non_missing(a) && isvalidSolution(a) && return a
+    d = a.current,snapshot
+    k, v = collect(keys(d)), collect(values(d))
+    solve(a, k, v)  # passed to solve #3
+end
+
+function solve(a::Alphametic, k::Vector{Char}, v::Vector{Int})
+    # solve #3
+    isempty(k) && return nothing
+    solve(a, first(k), first(v))  # passed to solve #4(a/b)
+    solve(a, k[2:end], v[2:end])  # recursion to solve #3
+end
+
+solve(a::Alphametic, k::Char, v::Int) = nothing # solve #4a
+
+solve(a::Alphametic, k::Char, v::Missing) = solve(a, k) # solve #4b passed on to solve #5
+
+function solve(a::Alphametic, k::Char, r::Vector{Int}=collect(0:9))
+    # solve #5
+    isempty(r) && return nothing
+    i = first(r)
+    solve(Val(not_taken(a, i)), a, i) # passed to solve #6(a/b)
+    solve(a, k, r[2:end]) # recursion to solve #5
+end
+
+solve(::Val{false}, _, __) = nothing  # solve #6a
+
+function solve(::Val{true}, a::Alphametic, k::Char, i::Int)
+    # solve #6b
+    a.current.snapshot[k] = i
+    solve(a)  # recursion to solve #2b
+    a.current.snapshot[k] = missing
+end
+
 #=
 function findCombinations(k::Int, N::Vector{Int}=collect(0:9),
             )::Vector{Vector{Int}}
@@ -107,24 +142,9 @@ function findCombinations(k::Int, N::Vector{Int}=collect(0:9),
 
 ------
 
-sanity checks
-    A == B => nothing (not an unique solution for each letter)
-    solutions with leading zero in right hand side => nothing
-dispatch on validSolution:
-    holy trait pattern
-    requires a struct
-    requires a private function _validSolution which returns a bool
-        => true: continue, false: backtrack
 create an iterator / lazy generator to iterate over permutations
     requires a struct
     requires to conditioned on already known solutions
-main data container
-    constructor splits input text in left & right
-    left is subsplit into subsegments
-    references mutable struct of known solutions
-dict to track and update current solutions
-    requires a (mutable) struct
-    constrains / conditions permutation iterator
 =#
 
 # https://www.youtube.com/watch?v=G_UYXzGuqvM
