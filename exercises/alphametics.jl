@@ -2,18 +2,7 @@
 
 const rvalidInput = r"^[A-Z]+(\ ?\+\ ?[A-Z]+)*\ ?\=\=\ ?[A-Z]+$"
 
-struct Alphametic
-    left::Vector{String}
-    right::String
-    current::Solution
-end
-
-function Alphametic(s::String)
-    fs = split(s, "==")
-    Alphametic(strip.(isspace, split(fs, "+")), strip(isspace, last(fs)), Solution(s))
-end
-
-Alphametic(::Nothing) = nothing
+# nedded for `Alphametic`
 
 mutable struct Solution
     snapshot::Dict{Char, Union{Int, Missing}}
@@ -25,6 +14,19 @@ Solution(s::String) = Solution(Dict(collect(filter(isletter, s)) .=> missing))
 Solution(s::Set{Char}) = Solution(Dict(s .=> missing))
 
 Base.length(S::Solution) = length(S.snapshot)
+
+struct Alphametic
+    left::Vector{String}
+    right::String
+    current::Solution
+end
+
+function Alphametic(s::String)
+    fs = split(s, "==")
+    Alphametic(strip.(isspace, split(first(fs), "+")), strip(isspace, last(fs)), Solution(s))
+end
+
+Alphametic(::Nothing) = nothing
 
 # types and constructor for dispatch on `swap()`
 
@@ -54,7 +56,7 @@ validSet(::Val{false}, _) = nothing
 
 validSet(n::Nothing) = n
     
-not_taken(a::Alphametic, n::Int) = !(n in values(a.current.snapshot))
+not_taken(a::Alphametic, n::Int) = !(any(v -> !ismissing(v) && v == n, values(a.current.snapshot)))
 
 non_missing(a::Alphametic) = !any(ismissing, values(a.current.snapshot))
 
@@ -64,13 +66,13 @@ swap(::Left, a::Alphametic) = _swap(a.current.snapshot, a.left...)
 
 swap(::Right, a::Alphametic) = _swap(a.current.snapshot, a.right)
 
-_swap(d::Dict{Char, Int}, s::String...) = map(i -> _swap(d, i), s)
+_swap(d::Dict{Char, Union{Missing, Int}}, s::String...) = map(i -> _swap(d, i), s)
 
-_swap(d::Dict{Char, Int}, s::String) = parse(Int, mapreduce(c -> string(d[c]), *, s))
+_swap(d::Dict{Char, Union{Missing, Int}}, s::String) = parse(Int, mapreduce(c -> string(d[c]), *, s))
 # alternative: `sum(d[c] * 10 ^ (i - 1) for (i, c) inumerate(reverse(s)))`
 
 isvalidSolution(a::Alphametic) = sum(swap(a, :left)) == swap(a, :right)
-
+# TODO: tested up to here
 # experimental exercise: 
 # using dispatch and recursion for `solve()` instead of otherwise e.g. nested loops
 
