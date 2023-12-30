@@ -2,151 +2,183 @@
 
 const rvalidInput = r"^[A-Z]+(\ ?\+\ ?[A-Z]+)*\ ?\=\=\ ?[A-Z]+$"
 
-# nedded for `Alphametic`
+# mutable fields of `Alphametic`
 
 mutable struct Solution
     snapshot::Dict{Char, Union{Int, Missing}}
 end
 
-Solution(s::String) = Solution(Dict(collect(filter(isletter, s)) .=> missing))
-# Remark: optionally `filter` could be replaced by `collect(s)[isletter.(collect(s)]`
+Solution(s::String) = Dict(c => missing for c in s if isletter(c)) |> Solution
 
-Solution(s::Set{Char}) = Solution(Dict(s .=> missing))
-
-Base.length(S::Solution) = length(S.snapshot)
-
-struct Alphametic
-    left::Vector{String}
-    right::String
-    current::Solution
+mutable struct Position
+    current::Int
+    Position(p::Int = 0) = new(p)
 end
 
-function Alphametic(s::String)
-    fs = split(s, "==")
-    Alphametic(strip.(isspace, split(first(fs), "+")), strip(isspace, last(fs)), Solution(s))
+# helper function for Alphametic constructor
+
+firstchar(s::String) = Set(s[first(i)] for i in findall(r"[A-Z]+", s))
+
+# `Alphametic`
+
+struct Alphametic
+    puzzle::String
+    elements::Tuple{Char, Vararg{Char}}
+    first::Set{Char}
+    position::Position
+    current::Solution
 end
 
 Alphametic(::Nothing) = nothing
 
-# types and constructor for dispatch on `swap()`
-
-abstract type Site end
-
-struct Left end
-
-struct Right end
-
-Site(s::Symbol) = Dict(:left => Left(), :right => Right())[s] # to ensure that only `;left` or `:right` are accepted
-# alternative; `s == :left ? Left() : Right()` 
-# alternative: `(s == :left && return Left()) || return Right()`
+function Alphametic(s::String)
+    Solution(s) |> 
+    d -> Alphametic(s, (keys(d.snapshot)...,), firstchar(s), Position(), d)
+end
 
 # helper functions for `solve()`
 
-validInputString(s::String; vi::Regex=rvalidInput) = validInputString(match(vi, s))
+validInputString(s::String; r::Regex=rvalidInput) = match(r, s) |> validInputString
 
-validInputString(m::RegexMatch) = m.match
+validInputString(m::RegexMatch) = String(m.match) # otherwise returns type substring
 
 validInputString(n::Nothing) = n
 
-validSet(s::String) = validSet(Val(length(Set(filter(isletter, s))) <= 10), s)
+function validSet(s::String)
+    Set(i for i in s if isletter(i)) |>
+    (c -> length(c) <= 10) |> 
+    v -> validSet(Val(v), s)
+end
 
 validSet(::Val{true}, s) = s
 
 validSet(::Val{false}, _) = nothing
 
 validSet(n::Nothing) = n
-    
-not_taken(a::Alphametic, n::Int) = !(any(v -> !ismissing(v) && v == n, values(a.current.snapshot)))
 
-non_missing(a::Alphametic) = !any(ismissing, values(a.current.snapshot))
-
-swap(a::Alphametic, site::Symbol) = swap(Site(site), a)
-
-swap(::Left, a::Alphametic) = _swap(a.current.snapshot, a.left...)
-
-swap(::Right, a::Alphametic) = _swap(a.current.snapshot, a.right)
-
-_swap(d::Dict{Char, Union{Missing, Int}}, s::String...) = map(i -> _swap(d, i), s)
-
-_swap(d::Dict{Char, Union{Missing, Int}}, s::String) = parse(Int, mapreduce(c -> string(d[c]), *, s))
-# alternative: `sum(d[c] * 10 ^ (i - 1) for (i, c) inumerate(reverse(s)))`
-
-isvalidSolution(a::Alphametic) = sum(swap(a, :left)) == swap(a, :right)
-# TODO: tested up to here
-# experimental exercise: 
-# using dispatch and recursion for `solve()` instead of otherwise e.g. nested loops
+# `solve()`
 
 function solve(s::String) 
-    # solve #1
-    s |> 
-    validInputString |> 
+    validInputString(s) |> 
     validSet |> 
     Alphametic |> 
-    solve # passed to solve #2(a/b)
+    solve
 end
 
-solve(n::Nothing) = n # solve #2a
+solve(n::Nothing) = n
 
-function solve(a::Alphametic)
-    # solve #2b
-    non_missing(a) && isvalidSolution(a) && return a
-    d = a.current,snapshot
-    k, v = collect(keys(d)), collect(values(d))
-    solve(a, k, v)  # passed to solve #3
+solve(a::Alphametic) = backtrack(a)
+
+# helper functions for backtracking
+
+function Base.allunique(a::Alphametic)
+    values(a.current.snapshot) |>
+    skipmissing |>
+    allunique
 end
 
-function solve(a::Alphametic, k::Vector{Char}, v::Vector{Int})
-    # solve #3
-    isempty(k) && return nothing
-    solve(a, first(k), first(v))  # passed to solve #4(a/b)
-    solve(a, k[2:end], v[2:end])  # recursion to solve #3
+iscomplete(a::Alphametic) = values(a.current.snapshot) |> x -> !any(ismissing, x)
+
+function firstzero(a::Alphametic)
+    any(i -> (c = a.current.snapshot[i]; ismissing(c)) ? false : iszero(c), a.first)
 end
 
-solve(a::Alphametic, k::Char, v::Int) = nothing # solve #4a
-
-solve(a::Alphametic, k::Char, v::Missing) = solve(a, k) # solve #4b passed on to solve #5
-
-function solve(a::Alphametic, k::Char, r::Vector{Int}=collect(0:9))
-    # solve #5
-    isempty(r) && return nothing
-    i = first(r)
-    solve(Val(not_taken(a, i)), a, i) # passed to solve #6(a/b)
-    solve(a, k, r[2:end]) # recursion to solve #5
+function isvalidSolution(a::Alphametic)
+    replace(a.puzzle, pairs(a.current.snapshot)...) |> 
+    Meta.parse |>
+    eval
 end
 
-solve(::Val{false}, _, __) = nothing  # solve #6a
+reject(a::Alphametic) = !allunique(a) || firstzero(a)
 
-function solve(::Val{true}, a::Alphametic, k::Char, i::Int)
-    # solve #6b
-    a.current.snapshot[k] = i
-    solve(a)  # recursion to solve #2b
-    a.current.snapshot[k] = missing
+accept(a::Alphametic) = iscomplete(a) && isvalidSolution(a)
+
+function start(a::Alphametic)
+    a.position.current == length(a.elements) ? nothing : 
+        begin 
+            a.position.current += 1
+            a.current.snapshot[a.elements[a.position.current]] = 0
+            return a
+        end
 end
 
-#=
-function findCombinations(k::Int, N::Vector{Int}=collect(0:9),
-            )::Vector{Vector{Int}}
+function next(a::Alphametic)
+    a.current.snapshot[a.elements[a.position.current]] == 9 ? 
+        begin
+            a.current.snapshot[a.elements[a.position.current]] = missing
+            a.position.current -= 1 
+            return nothing
+        end : 
+        begin
+            a.current.snapshot[a.elements[a.position.current]] += 1
+            return a
+        end
+end
 
-    k < 1 && return [Int[]]
+# backtracking
 
-	rereturn [append!([x],z) for x in N
-		for for z in findCombinations(k-1, N[begin+1:end])
-		if !if !(x in z)]
+function backtrack(a::Alphametic)
+    reject(a) && return
+    accept(a) && return a.current.snapshot
+    s = start(a)
+    while !isnothing(s)
+        (b = backtrack(s); isnothing(b)) ? (s = next(s)) : return b
     end
-=#
+    return nothing
+end
 
 #=
-3. for each column (from the back) try a permutation of n out of 0-9 where x + y = z
-4. check whether they are a solution
-5. constrain on letter substitutions already known
-6. backtrack if no valid solution
-7. output: dict with subsitution mappings
 
-------
+# notes 
 
-create an iterator / lazy generator to iterate over permutations
-    requires a struct
-    requires to conditioned on already known solutions
+# minimal working examples for backtracking options
+
+# wikipedia approach
+
+r(v::Vector) = !allunique(v)
+
+a(v::Vector) = v == [5,3,1]
+
+f(v::Vector) = length(v) == 3 ? nothing : append!(v,0)
+
+function n(v::Vector)
+    v[end] == 5 && (pop!(v); return nothing)
+    v[end] += 1
+    return v
+end
+
+function bt(v::Vector)
+    r(v) && return
+    a(v) && println("bingo")
+    s = f(v)
+    while !isnothing(s)
+        bt(s)
+        s = n(s)
+    end
+end
+
+# 'naive' backtracking
+
+function bt(k,t=[],r=[])
+    k == 0 && (push!(r,copy(t)); return)  # `copy()` essential
+    for e in 0:9
+        if !(e in t)
+            push!(t,e)
+            bt(k-1,t,r)
+            pop!(t)
+        end
+    end
+    return r
+end
+
+# generator comprehension
+
+function generator(k::Int,n::Int=0)
+    k == 0 && return [Int[]]
+    return (append!([i],c) for i in n:9 for c in generator(k-1,n=n) if !(i in c))
+end
+
+generator(3) |> 
+x -> Iterators.filter(isvalidSolution) |> 
+first # or: y -> Iterators.take(y,1)
 =#
-
-# https://www.youtube.com/watch?v=G_UYXzGuqvM
