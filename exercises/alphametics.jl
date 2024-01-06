@@ -10,14 +10,14 @@ function solve(s::String)
     l = collect.(w) |> Iterators.flatten |> unique
     f = first.(w) |> unique
 
-  for p in permutations(0:9, length(l))
-    s = Dict(zip(l, p))
-    any(i -> iszero(s[i]), f) && continue
-    r = swap(s).(w) 
-    (sum(r[1:end - 1]) == r[end]) && return s
-  end
+    for p in permutations(0:9, length(l))
+        s = Dict(zip(l, p))
+        any(i -> iszero(s[i]), f) && continue
+        r = swap(s).(w) 
+        (sum(r[1:end - 1]) == r[end]) && return s
+    end
 
-  nothing
+    nothing
 
 end
 
@@ -30,6 +30,53 @@ end
 # tried to come up with an alternative implementation...
 
 #########################################################
+
+=#
+
+#=
+
+#------------------------------------------
+
+# alphametics solver using Iterators utils
+# based on faster `isvalidSolutio()`
+# passed all tests locally under 10s
+# still times out on exercism ;-(
+
+#-----------------------------------------
+
+include("permutations.jl")
+
+firstzero(f::Vector{Char}) = d::Dict{Char, Int} -> any(i -> iszero(d[i]), f)
+
+function swap(d::Dict{Char, Int})
+    word::SubString{String} -> 
+        Iterators.foldl((i, k) -> 10 * i + d[k], word; init = 0)
+end
+        
+function check(w::Vector{SubString{String}})
+    d::Dict{Char, Int} -> 
+    swap(d).(w) |> 
+    (n -> sum(n[1:end - 1]) == n[end])
+end
+
+function solution(f::Function, c::Function)
+    d::Dict{Char, Int} -> 
+    !f(d) && c(d) 
+end
+
+function solve(s::String)
+    w = split(s, !isletter, keepempty = false)
+    l = collect.(w) |> Iterators.flatten |> unique
+    f = first.(w) |> unique
+
+    e = solution(firstzero(f), check(w))    
+
+    Iterators.map(p -> Dict(zip(l,p)), permutations(0:9, length(l))) |> 
+    s -> Iterators.filter(e, s) |> 
+    r -> Iterators.take(r, 1) |> 
+    i -> isempty(i) ? nothing : first(i)
+
+end
 
 =#
 
@@ -256,17 +303,6 @@ function backtrack(a::Alphametic)
     end
     return nothing
 end
-
-=#
-
-#=
-
-##########################################
-
-# for ducumentation purposes only!
-# slower previous implementation versions
-
-##########################################
 
 =#
 
